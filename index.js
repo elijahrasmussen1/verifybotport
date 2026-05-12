@@ -6,7 +6,7 @@ const PREFIX = '$';
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const OWNER_IDS = process.env.OWNER_IDS
   ? process.env.OWNER_IDS.split(',').map((id) => id.trim())
-  : [];
+  : []; // Used for owner-only command checks; add guards with OWNER_IDS.includes(message.author.id)
 
 if (!BOT_TOKEN) {
   console.error('ERROR: BOT_TOKEN is not set in your .env file.');
@@ -56,7 +56,7 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    // Plain channel ID (18–19 digit snowflake)
+    // Plain channel ID (17–20 digit snowflake)
     if (!channelId && /^\d{17,20}$/.test(input)) {
       channelId = input;
     }

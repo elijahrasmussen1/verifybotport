@@ -51,7 +51,7 @@ You should see `Logged in as YourBot#0000` when the bot is online.
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `$m` | `$m <#channel \| channel link>` | Makes the bot appear to be typing in the specified channel for ~30 seconds. |
+| `$m` | `$m <#channel or channel link>` | Makes the bot appear to be typing in the specified channel for ~30 seconds. |
 
 ### Examples
 
