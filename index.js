@@ -37,7 +37,7 @@ client.on('messageCreate', async (message) => {
     // Resolve the target channel from a mention (<#channelId>) or a Discord URL
     const input = args[0];
     if (!input) {
-      return message.reply('Please provide a channel mention or link. Usage: `$m <#channel or channel link>`');
+      return message.reply('Please provide a channel and message. Usage: `$m <#channel or channel link> <message>`');
     }
 
     let channelId = null;
@@ -65,6 +65,12 @@ client.on('messageCreate', async (message) => {
       return message.reply('Could not resolve a channel from that input. Use a channel mention, link, or ID.');
     }
 
+    // Everything after the channel argument is the message to send
+    const messageText = args.slice(1).join(' ');
+    if (!messageText) {
+      return message.reply('Please provide a message to send. Usage: `$m <#channel or channel link> <message>`');
+    }
+
     let targetChannel;
     try {
       targetChannel = await client.channels.fetch(channelId);
@@ -76,8 +82,8 @@ client.on('messageCreate', async (message) => {
       return message.reply('That does not appear to be a text channel.');
     }
 
-    // Show typing indicator in the target channel (repeats every 9 s for 30 s)
-    const DURATION_MS = 30_000;
+    // Show typing indicator in the target channel (repeats every 9 s for 15 s), then send the message
+    const DURATION_MS = 15_000;
     const INTERVAL_MS = 9_000;
 
     targetChannel.sendTyping().catch(() => {});
@@ -85,9 +91,12 @@ client.on('messageCreate', async (message) => {
       targetChannel.sendTyping().catch(() => {});
     }, INTERVAL_MS);
 
-    setTimeout(() => clearInterval(interval), DURATION_MS);
+    setTimeout(async () => {
+      clearInterval(interval);
+      await targetChannel.send(messageText);
+    }, DURATION_MS);
 
-    message.reply(`Now appearing to type in <#${channelId}> for ~30 seconds.`);
+    message.reply(`Typing in <#${channelId}> and sending your message in ~15 seconds.`);
   }
 });
 

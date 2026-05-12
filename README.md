@@ -51,14 +51,14 @@ You should see `Logged in as YourBot#0000` when the bot is online.
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `$m` | `$m <#channel or channel link>` | Makes the bot appear to be typing in the specified channel for ~30 seconds. |
+| `$m` | `$m <#channel or channel link> <message>` | Types in the specified channel for ~15 seconds, then sends the message. |
 
 ### Examples
 
 ```
-$m #general
-$m https://discord.com/channels/123456789/987654321
-$m 987654321098765432
+$m #general hello everyone!
+$m https://discord.com/channels/123456789/987654321 hey there
+$m 987654321098765432 what's up?
 ```
 
 ---
