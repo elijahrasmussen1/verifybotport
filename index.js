@@ -30,12 +30,18 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   if (!message.content.startsWith(PREFIX)) return;
 
-  const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
-  const command = args.shift().toLowerCase();
+  // Split only the first token (command) without collapsing the rest of the content,
+  // so that multi-line message bodies have their newlines preserved.
+  const rawBody = message.content.slice(PREFIX.length);
+  const firstSpaceIdx = rawBody.search(/\s/);
+  const command = (firstSpaceIdx === -1 ? rawBody : rawBody.slice(0, firstSpaceIdx)).toLowerCase();
+  const afterCommand = firstSpaceIdx === -1 ? '' : rawBody.slice(firstSpaceIdx + 1);
 
   if (command === 'm') {
-    // Resolve the target channel from a mention (<#channelId>) or a Discord URL
-    const input = args[0];
+    // Resolve the target channel from a mention (<#channelId>) or a Discord URL.
+    // Split only the channel argument off the front; everything after it is the raw message body.
+    const argMatch = afterCommand.match(/^(\S+)([\s\S]*)$/);
+    const input = argMatch ? argMatch[1] : null;
     if (!input) {
       return message.reply('Please provide a channel and message. Usage: `$m <#channel or channel link> <message>`');
     }
@@ -65,8 +71,8 @@ client.on('messageCreate', async (message) => {
       return message.reply('Could not resolve a channel from that input. Use a channel mention, link, or ID.');
     }
 
-    // Everything after the channel argument is the message to send
-    const messageText = args.slice(1).join(' ');
+    // Everything after the channel argument is the message to send (raw, preserving newlines)
+    const messageText = argMatch ? argMatch[2].replace(/^\s/, '') : '';
     if (!messageText) {
       return message.reply('Please provide a message to send. Usage: `$m <#channel or channel link> <message>`');
     }
