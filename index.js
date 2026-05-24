@@ -2,8 +2,15 @@ require('dotenv').config();
 
 const path = require('path');
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 const { Client, GatewayIntentBits, Partials, ActivityType, AttachmentBuilder } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const ffmpegPath = require('ffmpeg-static');
+
+// Only allow safe characters in song names (alphanumeric, hyphens, underscores, spaces)
+function isValidSongName(name) {
+  return /^[\w\s-]+$/.test(name);
+}
 
 const PREFIX = '$';
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -130,6 +137,10 @@ client.on('messageCreate', async (message) => {
       return message.reply('Please provide a song name. Usage: `$sing <songname>`');
     }
 
+    if (!isValidSongName(songName)) {
+      return message.reply('Invalid song name. Use only letters, numbers, hyphens, underscores, and spaces.');
+    }
+
     const filePath = path.join(__dirname, 'music', `${songName}.mp3`);
     if (!fs.existsSync(filePath)) {
       return message.reply(`Could not find \`music/${songName}.mp3\`. Make sure the file exists.`);
@@ -181,6 +192,10 @@ client.on('messageCreate', async (message) => {
       return message.reply('Usage: `$singchannel <#channel or channel link or ID> <songname>`');
     }
 
+    if (!isValidSongName(songName)) {
+      return message.reply('Invalid song name. Use only letters, numbers, hyphens, underscores, and spaces.');
+    }
+
     const filePath = path.join(__dirname, 'music', `${songName}.mp3`);
     if (!fs.existsSync(filePath)) {
       return message.reply(`Could not find \`music/${songName}.mp3\`. Make sure the file exists.`);
@@ -212,7 +227,17 @@ client.on('messageCreate', async (message) => {
     }
 
     // Send as a voice message (flags: 8192 marks it as a voice message in Discord)
-    const attachment = new AttachmentBuilder(filePath, { name: `${songName}.mp3` });
+    // Discord requires voice messages to be OGG Opus format — convert from mp3
+    const oggPath = path.join(__dirname, 'music', `${songName}.ogg`);
+    try {
+      const result = spawnSync(ffmpegPath, ['-y', '-i', filePath, '-c:a', 'libopus', '-b:a', '64k', oggPath], { stdio: 'ignore' });
+      if (result.status !== 0) throw new Error('ffmpeg exited with non-zero status');
+    } catch (convertErr) {
+      console.error('FFmpeg conversion error:', convertErr);
+      return message.reply('Failed to convert the audio file. Make sure ffmpeg is available.');
+    }
+
+    const attachment = new AttachmentBuilder(oggPath, { name: 'voice-message.ogg' });
     try {
       await targetChannel.send({
         files: [attachment],
@@ -222,6 +247,9 @@ client.on('messageCreate', async (message) => {
     } catch (err) {
       console.error('Error sending voice message:', err);
       message.reply('Failed to send the voice message. Make sure the bot has permissions in that channel.');
+    } finally {
+      // Clean up the temporary ogg file
+      try { fs.unlinkSync(oggPath); } catch (unlinkErr) { console.error('Failed to delete temporary file:', unlinkErr); }
     }
   }
 });
