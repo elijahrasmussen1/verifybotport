@@ -52,7 +52,7 @@ You should see `Logged in as YourBot#0000` when the bot is online.
 The bot **automatically joins** the configured voice channel (`VOICE_CHANNEL_ID`) on startup and stays there permanently. When someone joins the voice channel:
 
 - The bot starts playing music from its playlist, shuffled randomly
-- Songs fade in and out (3-second crossfade) between tracks
+- Songs fade in and out (2-second crossfade) between tracks
 - Audio is streamed at the highest quality (48kHz, stereo PCM)
 - When the playlist finishes, it reshuffles and starts again
 - When everyone leaves the VC, playback stops

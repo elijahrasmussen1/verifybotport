@@ -26,7 +26,7 @@ if (!BOT_TOKEN) {
 
 // --- Auto-join voice channel and shuffled music playback ---
 const PLAYLIST_SONGS = ['style', 'crush', 'flash', 'how', 'jeans', 'posterboy', 'trauma'];
-const CROSSFADE_DURATION = 3; // seconds of crossfade between songs
+const CROSSFADE_DURATION = 2; // seconds of fade between songs
 
 // Fisher-Yates shuffle
 function shuffleArray(arr) {
@@ -95,11 +95,35 @@ function playNextTrack() {
 
   console.log(`Now playing: ${currentSong}`);
 
+  // Probe the song duration so we can place the fade-out at the end
+  let duration = 0;
+  try {
+    const probe = spawnSync(ffmpegPath, [
+      '-i', currentPath,
+      '-f', 'null', '-'
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    // ffmpeg prints duration to stderr
+    const stderr = probe.stderr.toString();
+    const match = stderr.match(/Duration:\s*(\d+):(\d+):(\d+)\.(\d+)/);
+    if (match) {
+      duration = parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3]) + parseFloat('0.' + match[4]);
+    }
+  } catch (e) {
+    console.error('Failed to probe duration:', e);
+  }
+
+  // Build audio filter: fade-in at start, fade-out at end
+  let audioFilter = `afade=t=in:st=0:d=${CROSSFADE_DURATION}`;
+  if (duration > CROSSFADE_DURATION * 2) {
+    const fadeOutStart = duration - CROSSFADE_DURATION;
+    audioFilter += `,afade=t=out:st=${fadeOutStart}:d=${CROSSFADE_DURATION}`;
+  }
+
   // Use FFmpeg to play at highest quality with fade in/out
   // Stream PCM s16le at 48kHz stereo (Discord standard) for best quality
   const ffmpegArgs = [
     '-i', currentPath,
-    '-af', `afade=t=in:st=0:d=${CROSSFADE_DURATION},afade=t=out:d=${CROSSFADE_DURATION}`,
+    '-af', audioFilter,
     '-f', 's16le',
     '-ar', '48000',
     '-ac', '2',
