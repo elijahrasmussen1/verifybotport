@@ -15,7 +15,6 @@ function isValidSongName(name) {
 const PREFIX = '$';
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID || '1503585970014912718';
-const VOICE_MESSAGE_FLAG = 8192;
 const OWNER_IDS = process.env.OWNER_IDS
   ? process.env.OWNER_IDS.split(',').map((id) => id.trim())
   : []; // Used for owner-only command checks; add guards with OWNER_IDS.includes(message.author.id)
@@ -226,8 +225,7 @@ client.on('messageCreate', async (message) => {
       return message.reply('That does not appear to be a text channel.');
     }
 
-    // Send as a voice message (flags: 8192 marks it as a voice message in Discord)
-    // Discord requires voice messages to be OGG Opus format — convert from mp3
+    // Convert to OGG Opus so Discord renders it as a playable audio attachment
     const oggPath = path.join(__dirname, 'music', `${songName}.ogg`);
     try {
       const result = spawnSync(ffmpegPath, ['-y', '-i', filePath, '-c:a', 'libopus', '-b:a', '64k', oggPath], { stdio: 'ignore' });
@@ -237,42 +235,18 @@ client.on('messageCreate', async (message) => {
       return message.reply('Failed to convert the audio file. Make sure ffmpeg is available.');
     }
 
-    // Get duration of the converted ogg file using ffprobe
-    let durationSecs = 5; // fallback default
-    try {
-      const probeResult = spawnSync(ffmpegPath.replace('ffmpeg', 'ffprobe') , [
-        '-v', 'error', '-show_entries', 'format=duration',
-        '-of', 'default=noprint_wrappers=1:nokey=1', oggPath
-      ], { encoding: 'utf-8' });
-      if (probeResult.stdout) {
-        const parsed = parseFloat(probeResult.stdout.trim());
-        if (!isNaN(parsed)) durationSecs = Math.round(parsed);
-      }
-    } catch {
-      // Use fallback duration
-    }
-
-    // Generate a placeholder waveform (base64-encoded, Discord expects this for voice messages)
-    const waveform = 'AAAAAAAAAAAA';
-
+    // Send as a regular audio file attachment (playable inline in Discord)
     try {
       await targetChannel.send({
-        flags: VOICE_MESSAGE_FLAG,
         files: [{
           attachment: oggPath,
-          name: 'voice-message.ogg',
-        }],
-        attachments: [{
-          id: '0',
-          filename: 'voice-message.ogg',
-          duration_secs: durationSecs,
-          waveform: waveform,
+          name: `${songName}.ogg`,
         }],
       });
-      message.reply(`🎵 Sent **${songName}** as a voice message in <#${channelId}>`);
+      message.reply(`🎵 Sent **${songName}** as an audio attachment in <#${channelId}>`);
     } catch (err) {
-      console.error('Error sending voice message:', err);
-      message.reply('Failed to send the voice message. Make sure the bot has permissions in that channel.');
+      console.error('Error sending audio attachment:', err);
+      message.reply('Failed to send the audio file. Make sure the bot has permissions in that channel.');
     } finally {
       // Clean up the temporary ogg file
       try { fs.unlinkSync(oggPath); } catch (unlinkErr) { console.error('Failed to delete temporary file:', unlinkErr); }
