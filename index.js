@@ -1,9 +1,14 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const path = require('path');
+const fs = require('fs');
+const { Client, GatewayIntentBits, Partials, ActivityType, AttachmentBuilder } = require('discord.js');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
 
 const PREFIX = '$';
 const BOT_TOKEN = process.env.BOT_TOKEN;
+const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID || '1503585970014912718';
+const VOICE_MESSAGE_FLAG = 8192;
 const OWNER_IDS = process.env.OWNER_IDS
   ? process.env.OWNER_IDS.split(',').map((id) => id.trim())
   : []; // Used for owner-only command checks; add guards with OWNER_IDS.includes(message.author.id)
@@ -18,12 +23,25 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
   partials: [Partials.Channel],
 });
 
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  // Set "Listening to trauma" status with "by 2hollis" shown as the state text
+  client.user.setPresence({
+    activities: [
+      {
+        name: 'trauma',
+        type: ActivityType.Listening,
+        state: 'by 2hollis',
+      },
+    ],
+    status: 'online',
+  });
 });
 
 client.on('messageCreate', async (message) => {
@@ -103,6 +121,108 @@ client.on('messageCreate', async (message) => {
     }, DURATION_MS);
 
     message.reply(`Typing in <#${channelId}> and sending your message in ~15 seconds.`);
+  }
+
+  // $sing <songname> — join hardcoded voice channel, play music/<songname>.mp3, then leave
+  if (command === 'sing') {
+    const songName = afterCommand.trim();
+    if (!songName) {
+      return message.reply('Please provide a song name. Usage: `$sing <songname>`');
+    }
+
+    const filePath = path.join(__dirname, 'music', `${songName}.mp3`);
+    if (!fs.existsSync(filePath)) {
+      return message.reply(`Could not find \`music/${songName}.mp3\`. Make sure the file exists.`);
+    }
+
+    const guild = message.guild;
+    if (!guild) {
+      return message.reply('This command can only be used in a server.');
+    }
+
+    let voiceChannel;
+    try {
+      voiceChannel = await client.channels.fetch(VOICE_CHANNEL_ID);
+    } catch {
+      return message.reply('Could not find the voice channel.');
+    }
+
+    const connection = joinVoiceChannel({
+      channelId: voiceChannel.id,
+      guildId: guild.id,
+      adapterCreator: guild.voiceAdapterCreator,
+    });
+
+    const player = createAudioPlayer();
+    const resource = createAudioResource(filePath);
+    player.play(resource);
+    connection.subscribe(player);
+
+    message.reply(`🎵 Now playing **${songName}** in <#${VOICE_CHANNEL_ID}>`);
+
+    player.on(AudioPlayerStatus.Idle, () => {
+      connection.destroy();
+    });
+
+    player.on('error', (err) => {
+      console.error('Audio player error:', err);
+      connection.destroy();
+      message.reply('An error occurred while playing the song.');
+    });
+  }
+
+  // $singchannel <channel> <songname> — send the mp3 as a voice message to the specified text channel
+  if (command === 'singchannel') {
+    const argMatch2 = afterCommand.match(/^(\S+)\s+([\s\S]+)$/);
+    const channelInput = argMatch2 ? argMatch2[1] : null;
+    const songName = argMatch2 ? argMatch2[2].trim() : null;
+
+    if (!channelInput || !songName) {
+      return message.reply('Usage: `$singchannel <#channel or channel link or ID> <songname>`');
+    }
+
+    const filePath = path.join(__dirname, 'music', `${songName}.mp3`);
+    if (!fs.existsSync(filePath)) {
+      return message.reply(`Could not find \`music/${songName}.mp3\`. Make sure the file exists.`);
+    }
+
+    // Resolve channel ID
+    let channelId = null;
+    const mentionMatch2 = channelInput.match(/^<#(\d+)>$/);
+    if (mentionMatch2) channelId = mentionMatch2[1];
+    if (!channelId) {
+      const urlMatch2 = channelInput.match(/discord(?:app)?\.com\/channels\/\d+\/(\d+)/);
+      if (urlMatch2) channelId = urlMatch2[1];
+    }
+    if (!channelId && /^\d{17,20}$/.test(channelInput)) channelId = channelInput;
+
+    if (!channelId) {
+      return message.reply('Could not resolve a channel from that input. Use a channel mention, link, or ID.');
+    }
+
+    let targetChannel;
+    try {
+      targetChannel = await client.channels.fetch(channelId);
+    } catch {
+      return message.reply('Could not find that channel. Make sure the bot has access to it.');
+    }
+
+    if (!targetChannel || !targetChannel.isTextBased()) {
+      return message.reply('That does not appear to be a text channel.');
+    }
+
+    // Send as a voice message (flags: 8192 marks it as a voice message in Discord)
+    const attachment = new AttachmentBuilder(filePath, { name: `${songName}.mp3` });
+    try {
+      await targetChannel.send({
+        files: [attachment],
+        flags: VOICE_MESSAGE_FLAG,
+      });
+      message.reply(`🎵 Sent **${songName}** as a voice message in <#${channelId}>`);
+    } catch (err) {
+      console.error('Error sending voice message:', err);
+      message.reply('Failed to send the voice message. Make sure the bot has permissions in that channel.');
+    }
   }
 });
 

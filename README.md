@@ -52,6 +52,8 @@ You should see `Logged in as YourBot#0000` when the bot is online.
 | Command | Usage | Description |
 |---------|-------|-------------|
 | `$m` | `$m <#channel or channel link> <message>` | Types in the specified channel for ~15 seconds, then sends the message. |
+| `$sing` | `$sing <songname>` | Joins the configured voice channel, plays `music/<songname>.mp3`, then leaves. |
+| `$singchannel` | `$singchannel <#channel or channel link or ID> <songname>` | Sends `music/<songname>.mp3` as a voice message to the specified text channel. |
 
 ### Examples
 
