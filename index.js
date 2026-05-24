@@ -3,7 +3,7 @@ require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const { Client, GatewayIntentBits, Partials, ActivityType, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ActivityType } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
 const ffmpegPath = require('ffmpeg-static');
 
@@ -237,11 +237,37 @@ client.on('messageCreate', async (message) => {
       return message.reply('Failed to convert the audio file. Make sure ffmpeg is available.');
     }
 
-    const attachment = new AttachmentBuilder(oggPath, { name: 'voice-message.ogg' });
+    // Get duration of the converted ogg file using ffprobe
+    let durationSecs = 5; // fallback default
+    try {
+      const probeResult = spawnSync(ffmpegPath.replace('ffmpeg', 'ffprobe') , [
+        '-v', 'error', '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1', oggPath
+      ], { encoding: 'utf-8' });
+      if (probeResult.stdout) {
+        const parsed = parseFloat(probeResult.stdout.trim());
+        if (!isNaN(parsed)) durationSecs = Math.round(parsed);
+      }
+    } catch {
+      // Use fallback duration
+    }
+
+    // Generate a placeholder waveform (base64-encoded, Discord expects this for voice messages)
+    const waveform = 'AAAAAAAAAAAA';
+
     try {
       await targetChannel.send({
-        files: [attachment],
         flags: VOICE_MESSAGE_FLAG,
+        files: [{
+          attachment: oggPath,
+          name: 'voice-message.ogg',
+        }],
+        attachments: [{
+          id: '0',
+          filename: 'voice-message.ogg',
+          duration_secs: durationSecs,
+          waveform: waveform,
+        }],
       });
       message.reply(`🎵 Sent **${songName}** as a voice message in <#${channelId}>`);
     } catch (err) {
