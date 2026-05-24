@@ -2,9 +2,9 @@ require('dotenv').config();
 
 const path = require('path');
 const fs = require('fs');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { Client, GatewayIntentBits, Partials, ActivityType } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
 const ffmpegPath = require('ffmpeg-static');
 
 // Only allow safe characters in song names (alphanumeric, hyphens, underscores, spaces)
@@ -24,17 +24,164 @@ if (!BOT_TOKEN) {
   process.exit(1);
 }
 
+// --- Auto-join voice channel and shuffled music playback ---
+const PLAYLIST_SONGS = ['style', 'crush', 'flash', 'how', 'jeans', 'posterboy', 'trauma'];
+const CROSSFADE_DURATION = 3; // seconds of crossfade between songs
+
+// Fisher-Yates shuffle
+function shuffleArray(arr) {
+  const shuffled = [...arr];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+// State for the persistent voice connection and playback
+let vcConnection = null;
+let vcPlayer = null;
+let currentPlaylist = [];
+let currentTrackIndex = 0;
+let isPlaying = false;
+let currentFfmpegProcess = null;
+
+function getTrackPath(songName) {
+  return path.join(__dirname, 'music', `${songName}.mp3`);
+}
+
+function hasListenersInChannel(channel) {
+  // Check if there are non-bot members in the voice channel
+  return channel.members.filter(m => !m.user.bot).size > 0;
+}
+
+function startPlaylist() {
+  if (isPlaying) return;
+  currentPlaylist = shuffleArray(PLAYLIST_SONGS);
+  currentTrackIndex = 0;
+  isPlaying = true;
+  playNextTrack();
+}
+
+function stopPlayback() {
+  isPlaying = false;
+  if (vcPlayer) {
+    vcPlayer.stop();
+  }
+  if (currentFfmpegProcess) {
+    currentFfmpegProcess.kill('SIGTERM');
+    currentFfmpegProcess = null;
+  }
+}
+
+function playNextTrack() {
+  if (!isPlaying || !vcConnection) return;
+
+  // If we've played all songs, reshuffle and start over
+  if (currentTrackIndex >= currentPlaylist.length) {
+    currentPlaylist = shuffleArray(PLAYLIST_SONGS);
+    currentTrackIndex = 0;
+  }
+
+  const currentSong = currentPlaylist[currentTrackIndex];
+  const currentPath = getTrackPath(currentSong);
+
+  if (!fs.existsSync(currentPath)) {
+    console.error(`Track not found: ${currentPath}, skipping...`);
+    currentTrackIndex++;
+    playNextTrack();
+    return;
+  }
+
+  console.log(`Now playing: ${currentSong}`);
+
+  // Use FFmpeg to play at highest quality with fade in/out
+  // Stream PCM s16le at 48kHz stereo (Discord standard) for best quality
+  const ffmpegArgs = [
+    '-i', currentPath,
+    '-af', `afade=t=in:st=0:d=${CROSSFADE_DURATION},afade=t=out:d=${CROSSFADE_DURATION}`,
+    '-f', 's16le',
+    '-ar', '48000',
+    '-ac', '2',
+    '-acodec', 'pcm_s16le',
+    'pipe:1'
+  ];
+
+  const ffmpeg = spawn(ffmpegPath, ffmpegArgs, {
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  currentFfmpegProcess = ffmpeg;
+
+  const resource = createAudioResource(ffmpeg.stdout, {
+    inputType: StreamType.Raw,
+    inlineVolume: false,
+  });
+
+  vcPlayer.play(resource);
+  currentTrackIndex++;
+
+  ffmpeg.on('error', (err) => {
+    console.error('FFmpeg process error:', err);
+  });
+}
+
+async function joinAndStayInVC(channelId) {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel || !channel.isVoiceBased()) {
+      console.error('Could not find voice channel:', channelId);
+      return;
+    }
+
+    vcConnection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId: channel.guild.id,
+      adapterCreator: channel.guild.voiceAdapterCreator,
+      selfDeaf: false,
+    });
+
+    vcPlayer = createAudioPlayer();
+    vcConnection.subscribe(vcPlayer);
+
+    // When a track finishes, play the next one
+    vcPlayer.on(AudioPlayerStatus.Idle, () => {
+      if (isPlaying) {
+        playNextTrack();
+      }
+    });
+
+    vcPlayer.on('error', (err) => {
+      console.error('Audio player error:', err);
+      // Try to continue with next track
+      if (isPlaying) {
+        currentTrackIndex++;
+        playNextTrack();
+      }
+    });
+
+    // Check if someone is already in the channel and start playing
+    if (hasListenersInChannel(channel)) {
+      startPlaylist();
+    }
+
+    console.log(`Joined voice channel: ${channel.name}`);
+  } catch (err) {
+    console.error('Failed to join voice channel:', err);
+  }
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMembers,
   ],
   partials: [Partials.Channel],
 });
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   // Set "Listening to trauma" status with "by 2hollis" shown as the state text
@@ -48,6 +195,33 @@ client.once('ready', () => {
     ],
     status: 'online',
   });
+
+  // Auto-join the voice channel on startup
+  await joinAndStayInVC(VOICE_CHANNEL_ID);
+});
+
+// Monitor voice state changes to start/stop playback based on channel occupancy
+client.on('voiceStateUpdate', (oldState, newState) => {
+  // Only care about the bot's configured voice channel
+  const joinedBotChannel = newState.channelId === VOICE_CHANNEL_ID;
+  const leftBotChannel = oldState.channelId === VOICE_CHANNEL_ID;
+
+  if (!joinedBotChannel && !leftBotChannel) return;
+  // Ignore bot's own state changes
+  if (newState.member.user.bot) return;
+
+  const channel = oldState.guild.channels.cache.get(VOICE_CHANNEL_ID);
+  if (!channel) return;
+
+  const listeners = channel.members.filter(m => !m.user.bot).size;
+
+  if (listeners > 0 && !isPlaying) {
+    // Someone joined and music isn't playing — start the playlist
+    startPlaylist();
+  } else if (listeners === 0 && isPlaying) {
+    // Everyone left — stop playback
+    stopPlayback();
+  }
 });
 
 client.on('messageCreate', async (message) => {
@@ -129,7 +303,7 @@ client.on('messageCreate', async (message) => {
     message.reply(`Typing in <#${channelId}> and sending your message in ~15 seconds.`);
   }
 
-  // $sing <songname> — join hardcoded voice channel, play music/<songname>.mp3, then leave
+  // $sing <songname> — play a specific song in the voice channel (interrupts current playlist)
   if (command === 'sing') {
     const songName = afterCommand.trim();
     if (!songName) {
@@ -145,40 +319,43 @@ client.on('messageCreate', async (message) => {
       return message.reply(`Could not find \`music/${songName}.mp3\`. Make sure the file exists.`);
     }
 
-    const guild = message.guild;
-    if (!guild) {
-      return message.reply('This command can only be used in a server.');
+    if (!vcConnection || !vcPlayer) {
+      return message.reply('Bot is not connected to a voice channel yet.');
     }
 
-    let voiceChannel;
-    try {
-      voiceChannel = await client.channels.fetch(VOICE_CHANNEL_ID);
-    } catch {
-      return message.reply('Could not find the voice channel.');
-    }
+    // Stop the current auto-playlist and play the requested song
+    stopPlayback();
 
-    const connection = joinVoiceChannel({
-      channelId: voiceChannel.id,
-      guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
+    const ffmpegArgs = [
+      '-i', filePath,
+      '-f', 's16le',
+      '-ar', '48000',
+      '-ac', '2',
+      '-acodec', 'pcm_s16le',
+      'pipe:1'
+    ];
+
+    const ffmpeg = spawn(ffmpegPath, ffmpegArgs, {
+      stdio: ['ignore', 'pipe', 'ignore'],
     });
 
-    const player = createAudioPlayer();
-    const resource = createAudioResource(filePath);
-    player.play(resource);
-    connection.subscribe(player);
+    const resource = createAudioResource(ffmpeg.stdout, {
+      inputType: StreamType.Raw,
+      inlineVolume: false,
+    });
 
+    vcPlayer.play(resource);
     message.reply(`🎵 Now playing **${songName}** in <#${VOICE_CHANNEL_ID}>`);
 
-    player.on(AudioPlayerStatus.Idle, () => {
-      connection.destroy();
-    });
-
-    player.on('error', (err) => {
-      console.error('Audio player error:', err);
-      connection.destroy();
-      message.reply('An error occurred while playing the song.');
-    });
+    // After the manual song finishes, resume the auto-playlist if there are listeners
+    const onIdle = () => {
+      vcPlayer.off(AudioPlayerStatus.Idle, onIdle);
+      const channel = client.channels.cache.get(VOICE_CHANNEL_ID);
+      if (channel && hasListenersInChannel(channel)) {
+        startPlaylist();
+      }
+    };
+    vcPlayer.on(AudioPlayerStatus.Idle, onIdle);
   }
 
   // $singchannel <channel> <songname> — send the mp3 as a voice message to the specified text channel

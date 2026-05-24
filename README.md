@@ -47,12 +47,35 @@ You should see `Logged in as YourBot#0000` when the bot is online.
 
 ---
 
+## Auto-Join Voice & Music Playback
+
+The bot **automatically joins** the configured voice channel (`VOICE_CHANNEL_ID`) on startup and stays there permanently. When someone joins the voice channel:
+
+- The bot starts playing music from its playlist, shuffled randomly
+- Songs fade in and out (3-second crossfade) between tracks
+- Audio is streamed at the highest quality (48kHz, stereo PCM)
+- When the playlist finishes, it reshuffles and starts again
+- When everyone leaves the VC, playback stops
+- When someone joins again, a fresh shuffle starts
+
+### Playlist Songs
+Place these files in the `music/` folder:
+- `style.mp3`
+- `crush.mp3`
+- `flash.mp3`
+- `how.mp3`
+- `jeans.mp3`
+- `posterboy.mp3`
+- `trauma.mp3`
+
+---
+
 ## Commands
 
 | Command | Usage | Description |
 |---------|-------|-------------|
 | `$m` | `$m <#channel or channel link> <message>` | Types in the specified channel for ~15 seconds, then sends the message. |
-| `$sing` | `$sing <songname>` | Joins the configured voice channel, plays `music/<songname>.mp3`, then leaves. |
+| `$sing` | `$sing <songname>` | Plays `music/<songname>.mp3` in the voice channel (interrupts the auto-playlist, resumes after). |
 | `$singchannel` | `$singchannel <#channel or channel link or ID> <songname>` | Sends `music/<songname>.mp3` as a playable audio attachment to the specified text channel. |
 
 ### Examples
