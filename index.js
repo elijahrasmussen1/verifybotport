@@ -6,6 +6,7 @@ const { spawn, spawnSync } = require('child_process');
 const { Client, GatewayIntentBits, Partials, ActivityType } = require('discord.js');
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
 const ffmpegPath = require('ffmpeg-static');
+const { getMongoClient, checkMongoConnection } = require('./db/mongo');
 
 // Only allow safe characters in song names (alphanumeric, hyphens, underscores, spaces)
 function isValidSongName(name) {
@@ -222,6 +223,14 @@ client.once('ready', async () => {
 
   // Auto-join the voice channel on startup
   await joinAndStayInVC(VOICE_CHANNEL_ID);
+
+  // Attempt MongoDB connection on startup (non-fatal)
+  try {
+    await getMongoClient();
+    console.log('MongoDB connected.');
+  } catch (err) {
+    console.error('MongoDB connection failed:', err.message);
+  }
 });
 
 // Monitor voice state changes to start/stop playback based on channel occupancy
@@ -258,6 +267,16 @@ client.on('messageCreate', async (message) => {
   const firstSpaceIdx = rawBody.search(/\s/);
   const command = (firstSpaceIdx === -1 ? rawBody : rawBody.slice(0, firstSpaceIdx)).toLowerCase();
   const afterCommand = firstSpaceIdx === -1 ? '' : rawBody.slice(firstSpaceIdx + 1);
+
+  if (command === 'mongo') {
+    try {
+      await checkMongoConnection();
+      return message.reply('mongo connected');
+    } catch (err) {
+      console.error('MongoDB check failed:', err.message);
+      return message.reply('mongo connection error');
+    }
+  }
 
   if (command === 'm') {
     // Resolve the target channel from a mention (<#channelId>) or a Discord URL.

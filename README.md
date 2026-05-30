@@ -18,10 +18,12 @@ Copy `.env.example` to `.env` and fill in your values:
 ```
 BOT_TOKEN=your_bot_token_here
 OWNER_IDS=your_discord_user_id
+MONGODB_URI=your_mongodb_connection_uri
 ```
 
 - **BOT_TOKEN** — found in the [Discord Developer Portal](https://discord.com/developers/applications) under your application → Bot → Token.
 - **OWNER_IDS** — comma-separated Discord user IDs of bot owners (right-click a user with Developer Mode enabled → Copy ID).
+- **MONGODB_URI** — your MongoDB Atlas connection string.
 
 ### 4. Install dependencies (PowerShell)
 
@@ -77,6 +79,7 @@ Place these files in the `music/` folder:
 | `$m` | `$m <#channel or channel link> <message>` | Types in the specified channel for ~15 seconds, then sends the message. |
 | `$sing` | `$sing <songname>` | Plays `music/<songname>.mp3` in the voice channel (interrupts the auto-playlist, resumes after). |
 | `$singchannel` | `$singchannel <#channel or channel link or ID> <songname>` | Sends `music/<songname>.mp3` as a playable audio attachment to the specified text channel. |
+| `$mongo` | `$mongo` | Checks MongoDB connectivity and replies with `mongo connected` or `mongo connection error`. |
 
 ### Examples
 
